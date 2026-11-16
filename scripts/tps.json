@@ -1,0 +1,26 @@
+[
+    {
+        "numero":  1,
+        "titre":  "Inversion de Contrôle et Injection de Dépendances",
+        "tech":  "Java, Maven, Spring",
+        "depot_origine":  "https://github.com/Amalkaraoud/TP1-MS"
+    },
+    {
+        "numero":  2,
+        "titre":  "REST : service web « Calculatrice » avec JAX-RS et Tomcat",
+        "tech":  "Java, JAX-RS, Tomcat",
+        "depot_origine":  "https://github.com/Amalkaraoud/TP2-MS"
+    },
+    {
+        "numero":  3,
+        "titre":  "REST : microservice « Calculatrice » avec Spring Boot",
+        "tech":  "Java, Spring Boot",
+        "depot_origine":  "https://github.com/Amalkaraoud/TP3-MS"
+    },
+    {
+        "numero":  4,
+        "titre":  "Spring Cloud : « Calculatrice » avec Eureka, Gateway et OpenFeign",
+        "tech":  "Java, Spring Cloud, Eureka, Gateway, OpenFeign",
+        "depot_origine":  "https://github.com/Amalkaraoud/TP4-MS"
+    }
+]

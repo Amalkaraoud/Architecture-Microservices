@@ -1,35 +1,43 @@
 # Architecture Microservices
 
-Dépôt centralisé regroupant les quatre travaux pratiques de la matière **Architecture Microservices** : de l'inversion de contrôle avec Spring jusqu'à une architecture complète avec Spring Cloud.
+Dépôt centralisé regroupant l'ensemble des travaux pratiques de la matière **Architecture Microservices**. Chaque TP est un projet autonome, dans son propre dossier, accompagné de son README détaillé.
 
-> Ce dépôt est une **copie centralisée supplémentaire**, historique Git inclus. Les dépôts d'origine (TP1-MS à TP4-MS) restent disponibles et inchangés.
+> Les TP1 à TP4 existent aussi dans leurs dépôts d'origine (liens dans l'index), qui restent inchangés. Les TP suivants sont publiés uniquement ici.
 
-## Les travaux pratiques
+## Index des TP
 
-Chaque TP est un projet autonome, avec son propre README détaillé : cliquer sur un dossier pour l'afficher.
-
+<!-- TP-INDEX:START -->
 | TP | Thème | Technologies | Dépôt d'origine |
 |----|-------|--------------|-----------------|
-| [TP1-MS](./TP1-MS) | Architecture Microservices : Inversion de Contrôle et Injection de Dépendances | Java, Maven, Spring | [Amalkaraoud/TP1-MS](https://github.com/Amalkaraoud/TP1-MS) |
+| [TP1-MS](./TP1-MS) | Inversion de Contrôle et Injection de Dépendances | Java, Maven, Spring | [Amalkaraoud/TP1-MS](https://github.com/Amalkaraoud/TP1-MS) |
 | [TP2-MS](./TP2-MS) | REST : service web « Calculatrice » avec JAX-RS et Tomcat | Java, JAX-RS, Tomcat | [Amalkaraoud/TP2-MS](https://github.com/Amalkaraoud/TP2-MS) |
 | [TP3-MS](./TP3-MS) | REST : microservice « Calculatrice » avec Spring Boot | Java, Spring Boot | [Amalkaraoud/TP3-MS](https://github.com/Amalkaraoud/TP3-MS) |
 | [TP4-MS](./TP4-MS) | Spring Cloud : « Calculatrice » avec Eureka, Gateway et OpenFeign | Java, Spring Cloud, Eureka, Gateway, OpenFeign | [Amalkaraoud/TP4-MS](https://github.com/Amalkaraoud/TP4-MS) |
+<!-- TP-INDEX:END -->
 
-## Progression
-
-1. **TP1** : IoC et injection de dépendances avec Spring.
-2. **TP2** : premier service REST avec JAX-RS déployé sur Tomcat.
-3. **TP3** : le même service en microservice Spring Boot.
-4. **TP4** : architecture distribuée avec Eureka, Gateway et OpenFeign.
+Cliquer sur le nom d'un TP pour accéder à son dossier et à son README.
 
 ## Structure du dépôt
 
+<!-- TP-TREE:START -->
     Architecture-Microservices/
     ├── README.md
-    ├── TP1-MS/   (projet complet + son README)
-    ├── TP2-MS/   (projet complet + son README)
-    ├── TP3-MS/   (projet complet + son README)
-    └── TP4-MS/   (projet complet + son README)
+    ├── TP1-MS/
+    ├── TP2-MS/
+    ├── TP3-MS/
+    ├── TP4-MS/
+    ├── docs/
+    ├── scripts/
+    └── templates/
+<!-- TP-TREE:END -->
+
+Chaque dossier `TP<N>-MS` est autonome : il se compile et s'exécute indépendamment des autres.
+
+## Ajouter un nouveau TP
+
+    powershell -ExecutionPolicy Bypass -File .\scripts\new-tp.ps1 -Numero 5 -Titre "Titre du TP" -Tech "Java, Spring Boot"
+
+Le script crée le dossier et son README (depuis `templates/TP-README.md`), puis met à jour l'index ci-dessus. Détails : [docs/CONVENTIONS.md](./docs/CONVENTIONS.md).
 
 ## Utilisation
 
