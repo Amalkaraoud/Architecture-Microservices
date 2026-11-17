@@ -164,10 +164,6 @@ git push -u origin main
 
 ## 8. Exécution : installation et lancement
 
-1. Décompresser `calculatrice-config-repo.zip` dans `C:\tp5-config\` (le dossier `.git` est inclus).
-2. Ouvrir le projet dans IntelliJ, vérifier le SDK 17, puis `mvn clean package -DskipTests`.
-3. Démarrer les six processus dans l'ordre de l'étape 4 (configurations d'exécution IntelliJ ou `java -jar …`, voir réponse 11 de synthèse).
-4. Tester : Swagger UI de chaque service, `http://localhost:8761` (annuaire), `http://localhost:8888/calcul-service/calcul/config` (passerelle).
 
 Dans les consoles, chaque client interroge le serveur de configuration (`Fetching config from server at : http://localhost:9999`) puis journalise l'environnement reçu, par exemple pour l'instance 8081 en profil dev : `Located environment: name=calcul-service, profiles=[dev], label=null, version=bc134979ec791d36e13a1994461cc8a01cf2247e`. Un premier appel avec `profiles=[default]` précède celui du profil `dev`.
 
@@ -199,16 +195,8 @@ aa372a0 Limite de calcul-service relevee a 2000
 09ba676 Configuration initiale de la calculatrice
 ```
 
-## 10. Difficultés rencontrées et solutions
 
-| Difficulté | Cause | Solution |
-|---|---|---|
-| Après un `POST /actuator/refresh`, `calcul-service` disparaît d'Eureka ; la passerelle et OpenFeign répondent 503 « calcul-service injoignable » | le client Eureka est un bean `@RefreshScope` : le refresh le détruit et le désinscrit, puis le réenregistrement échoue (HTTP 400 au renouvellement du bail) | `eureka.client.refresh.enable=false` dans `calcul-service` et `historique-service` ; après correctif, un refresh répond `200 []` et les cinq instances restent `UP` |
-| `500` sur `/calcul-service/default` au premier essai | dépôt de configuration non initialisé ou mal placé (message « No directory at file:/… ») | dépôt créé et validé dans `C:\tp5-config`, puis redémarrage du serveur |
-| « Project JDK is not specified » au lancement Maven | SDK du projet vide | SDK 17 Temurin sélectionné (capture 1) |
-| Nouvelle valeur visible sur le serveur mais version inchangée | pour un dépôt `file:///`, le serveur lit l'arbre de travail, pas les commits | comportement documenté dans la réponse E.3 ; les commits servent à la traçabilité |
-
-## 11. Captures d'écran
+## 10. Captures d'écran
 
 
 ### Configuration et construction
@@ -280,11 +268,11 @@ aa372a0 Limite de calcul-service relevee a 2000
 *Capture 15 — `GET /calcul-service/default/main` : l'étiquette `main` est reconnue (`label":"main"`).*
 
 
-## 12. Conclusion
+## 11. Conclusion
 
 Le TP5 est réalisé : le serveur `config-service` centralise la configuration de la calculatrice dans un dépôt Git, les deux microservices en sont clients, deux instances d'un même service se distinguent par leur profil derrière la passerelle, et les modifications sont rechargées à chaud par `/actuator/refresh`, avec une trace Git de chaque changement. L'expérience a aussi montré deux points d'attention : le serveur d'un dépôt `file:///` lit l'arbre de travail et non les commits, et le client Eureka, étant `@RefreshScope`, doit être protégé du refresh par `eureka.client.refresh.enable=false`. Pour aller plus loin : sécuriser le serveur (Spring Security, valeurs `{cipher}`) et diffuser le rechargement à toutes les instances avec Spring Cloud Bus.
 
-## 13. Réponses aux questions du TP
+## 12. Réponses aux questions du TP
 
 ### Partie A
 
@@ -334,16 +322,4 @@ Règle de conception : pour une configuration modifiable à chaud, la placer dan
 
 **F.2.** Créer à la racine du dépôt `application-prod.properties` avec `eureka.instance.lease-renewal-interval-in-seconds=30` (et `eureka.instance.lease-expiration-duration-in-seconds=90`, valeur par défaut), puis le commiter. Ce fichier ne s'applique qu'aux services lancés en profil `prod` et l'emporte sur `application.properties`.
 
-## 14. Questions de synthèse
 
-1. **Tableau A.3** : nombre de programmes → C.5 / D.6 (six consoles, Eureka) ; dépendances → D.1 et D.5 ; emplacement des propriétés → D.2 ; réglages communs → B.1 puis D.2 ; changer une valeur → E.1 et E.2 ; environnements → F.1 à F.3 ; historique → `git log` (B.2, E.1, E.3) et champ `version` (C.5) ; lecture en Java → D.3 et D.5 ; points Actuator → D.4 et E.2 ; ordre de lancement → prérequis et C.5.
-2. **Démarrage d'`historique-service` en profil `dev`** : (1) lecture de son `application.properties` local (nom, port 8082, `spring.config.import`, URL Eureka) ; (2) `GET http://localhost:9999/historique-service/dev` vers `config-service` ; (3) le serveur lit dans le dépôt, dans cet ordre, `historique-service-dev.properties`, `historique-service.properties`, `application.properties` ; (4) réponse JSON, les trois sources sont ajoutées devant le fichier local ; `historique.max-operations` vaut 3 (fichier `-dev`, qui l'emporte sur 50) ; (5) création des beans, inscription dans Eureka (`GET/POST` vers 8761), Tomcat démarre sur 8082.
-3. **Les trois propriétés locales** : `spring.application.name` (c'est le `{nom}` envoyé au serveur), `spring.config.import` (l'adresse du serveur doit être connue pour lui parler), `server.port` (deux instances du même service ont le même nom mais des ports différents).
-4. **`optional:`** : avantage, le microservice démarre même si le serveur est en panne ; inconvénient, il peut démarrer avec une configuration incomplète ou par défaut sans que l'erreur soit visible tout de suite. En production, on choisirait de ne pas mettre `optional:` (fail fast) pour ne jamais tourner avec une mauvaise configuration.
-5. **Spring Cloud Bus** introduit un bus de messages (broker RabbitMQ ou Kafka) auquel toutes les instances sont abonnées. Le point `/actuator/busrefresh` remplace `/actuator/refresh` : un seul appel diffuse l'ordre de rechargement à toutes les instances.
-6. **`@Value` + `@RefreshScope` / `@ConfigurationProperties`** : `@Value` est simple pour une ou deux propriétés mais éparpille les clés ; `@ConfigurationProperties` regroupe un préfixe dans une classe et convertit les types avec le relaxed binding (valeurs manquantes tolérées). Au refresh, `@Value` exige `@RefreshScope` (bean recréé), alors que `@ConfigurationProperties` est re-lié automatiquement. On préfère `@Value` pour une valeur isolée, `@ConfigurationProperties` dès qu'on a un groupe de propriétés.
-7. **Chiffrement** : une valeur est écrite `{cipher}…` dans le dépôt, produite par `POST /encrypt` (le déchiffrement : `POST /decrypt`). La clé (`encrypt.key` ou keystore) est détenue par le serveur de configuration ; par défaut, la valeur est déchiffrée par le serveur au moment de servir la configuration au client.
-8. **Passerelle cliente** : ajouter `spring-cloud-starter-config` au `pom.xml`, `spring.config.import: optional:configserver:http://localhost:9999` dans `application.yml` (en gardant nom et port), et créer `gateway-service.properties` dans le dépôt. On gagne la centralisation et le rechargement à chaud de la configuration de la passerelle. L'annuaire pourrait techniquement être client (adresse fixe), mais cela crée une dépendance circulaire de démarrage (le serveur de configuration s'inscrit dans l'annuaire), donc ce n'est pas souhaitable.
-9. **Retour arrière** : `git revert <commit>` dans le dépôt de configuration crée un nouveau commit qui annule la modification ; côté microservices, un seul `POST /actuator/refresh` par instance, sans redémarrage.
-10. **Mode `native`** : on perd l'historique, l'auteur et la date des changements et le retour arrière par `git revert` ; il suffit pour un poste de développement ou un test local sans besoin de traçabilité.
-11. **Sans IntelliJ** : à la racine `calculatrice-spring-cloud`, `mvn clean package -DskipTests` construit les cinq modules ; puis, dans cet ordre, `java -jar eureka-service/target/eureka-service-0.0.1-SNAPSHOT.jar`, `java -jar config-service/target/config-service-0.0.1-SNAPSHOT.jar`, `java -jar calcul-service/target/calcul-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=dev` (8081), `java -jar calcul-service/target/calcul-service-0.0.1-SNAPSHOT.jar --server.port=8083 --spring.profiles.active=prod`, `java -jar historique-service/target/historique-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=dev`, `java -jar gateway-service/target/gateway-service-0.0.1-SNAPSHOT.jar`.
