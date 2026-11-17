@@ -8,20 +8,288 @@
 | **Année universitaire** | 2026-2027 |
 | **Base** | Projet du TP4 (`calculatrice-spring-cloud`), étendu sans régression |
 
-## 1. Ce qui a été ajouté au TP4
+## 1. Présentation
 
-| Élément | Nature | Fichiers |
+Ce travail prolonge l'application « Calculatrice » du TP4 (annuaire Eureka, passerelle Spring Cloud Gateway, deux microservices `calcul-service` et `historique-service`). Jusqu'ici, chaque microservice portait sa configuration dans son propre `application.properties` : changer une limite ou un réglage Eureka imposait de modifier le code, de reconstruire puis de redémarrer chaque instance.
+
+Le TP5 introduit un **serveur de configuration** (`config-service`, port 9999) qui lit ses fichiers dans un dépôt Git. Les microservices deviennent des **clients de configuration** : ils récupèrent leurs propriétés au démarrage selon leur nom et leur profil (`dev`, `prod`), et peuvent les relire à chaud par `POST /actuator/refresh`.
+
+## 2. Objectifs
+
+- Créer un serveur Spring Cloud Config adossé à un dépôt Git local (`calculatrice-config-repo`).
+- Transformer `calcul-service` et `historique-service` en clients de configuration (`spring.config.import`).
+- Observer l'ordre de priorité des sources (fichier par service, par profil, fichier commun).
+- Exploiter les profils `dev` et `prod` pour deux instances du même service derrière la passerelle.
+- Recharger la configuration sans redémarrage (`/actuator/refresh`, `@RefreshScope`, `@ConfigurationProperties`).
+- Tracer les changements de configuration avec Git (trois commits) et comprendre le rôle du champ `version`.
+
+## 3. Technologies et outils
+
+| Outil | Version / rôle |
+|---|---|
+| Java | 17 (Eclipse Temurin 17.0.20) |
+| Spring Boot | 4.0.9 |
+| Spring Cloud | 2025.1.x : Config Server et Client, Netflix Eureka, Gateway, OpenFeign |
+| Maven | multi-module (projet parent `calculatrice-spring-cloud`) |
+| springdoc-openapi | Swagger UI de chaque microservice |
+| Spring Boot Actuator | points `health`, `env`, `refresh` |
+| Git | dépôt de configuration, historique des modifications |
+| IntelliJ IDEA | exécution et consoles des cinq services |
+
+## 4. Prérequis
+
+- JDK 17 installé et sélectionné comme SDK du projet (voir la capture 1).
+- Maven (intégré à IntelliJ) ou `mvn` en ligne de commande.
+- Git.
+- Le dépôt de configuration cloné ou décompressé dans `C:\tp5-config\calculatrice-config-repo`, adresse attendue par `config-service` (`spring.cloud.config.server.git.uri=file:///C:/tp5-config/calculatrice-config-repo`). À partir de l'archive `calculatrice-config-repo.zip` livrée à la racine du projet, il suffit de la décompresser dans `C:\tp5-config\`.
+- Ports libres : 8761, 9999, 8081, 8083, 8082, 8888.
+
+## 5. Structure du projet
+
+```
+calculatrice-spring-cloud/
+├── pom.xml                         POM parent (5 modules)
+├── README.md
+├── calculatrice-config-repo.zip    dépôt de configuration avec son dossier .git (3 commits)
+├── screenshots/                    captures d'écran réelles
+├── eureka-service/                 annuaire (8761)                       — inchangé
+├── config-service/                 serveur de configuration (9999)       — nouveau
+├── calcul-service/                 opérations arithmétiques (8081, 8083) — client de configuration
+├── historique-service/             historique des opérations (8082)      — client de configuration
+└── gateway-service/                passerelle (8888)                     — inchangée
+```
+
+Contenu du dépôt de configuration (`calculatrice-config-repo`) :
+
+```
+application.properties              réglages communs (Eureka, Actuator, équipe)
+calcul-service.properties           défauts de calcul-service (max-operande=2000 après E.1)
+calcul-service-dev.properties       profil dev  (max-operande=100)
+calcul-service-prod.properties      profil prod (max-operande=1000000)
+historique-service.properties       défauts d'historique-service (max-operations=2 après E.3)
+historique-service-dev.properties   profil dev  (max-operations=3)
+historique-service-prod.properties  profil prod (max-operations=1000)
+```
+
+## 6. Déroulement détaillé
+
+### Étape 1 — Vérification de l'environnement et de la compilation
+
+Le SDK du projet est Temurin 17 (capture 1). Dans le panneau Maven, `clean` puis `package` (tests ignorés) construisent les cinq modules : `BUILD SUCCESS` (captures 2 et 3). En ligne de commande :
+
+```bash
+mvn clean package -DskipTests
+```
+
+### Étape 2 — Dépôt de configuration (parties A et B)
+
+Un dépôt Git distinct du projet contient les sept fichiers listés plus haut. Le premier commit crée l'ensemble :
+
+```bash
+cd C:\tp5-config\calculatrice-config-repo
+git init
+git add .
+git commit -m "Configuration initiale de la calculatrice"
+```
+
+Les propriétés communes de `application.properties` utilisent des `${…}` (`eureka.instance.instance-id=${spring.application.name}:${server.port}`) : chaque client les résout avec ses propres valeurs (réponse B.1).
+
+### Étape 3 — Serveur de configuration (partie C)
+
+Nouveau module `config-service` : dépendances `spring-cloud-config-server` et `eureka-client`, annotation `@EnableConfigServer` sur la classe principale, puis dans `application.properties` :
+
+```properties
+spring.application.name=config-service
+server.port=9999
+spring.cloud.config.server.git.uri=file:///C:/tp5-config/calculatrice-config-repo
+spring.cloud.config.server.git.default-label=main
+```
+
+Vérification : `http://localhost:9999/calcul-service/default` renvoie les sources par ordre de priorité et le champ `version` (huit requêtes C.5, captures 8 à 15).
+
+### Étape 4 — Clients de configuration (partie D)
+
+`calcul-service` et `historique-service` reçoivent les dépendances `spring-cloud-starter-config` et `spring-boot-starter-actuator`. Leur `application.properties` local ne garde que ce qui doit être connu avant d'interroger le serveur :
+
+```properties
+spring.application.name=calcul-service
+server.port=8081
+spring.config.import=optional:configserver:http://localhost:9999
+management.endpoints.web.exposure.include=health,env,refresh
+management.endpoint.env.show-values=always
+```
+
+Côté code : `ConfigController` (`GET /calcul/config`) et la limite `calcul.max-operande` dans `CalculController` pour `calcul-service` ; `HistoriqueParams` (`@ConfigurationProperties`), `HistoriqueConfigController` (`GET /operations/config`) et la limite `historique.max-operations` (réponse 409) pour `historique-service`.
+
+Lancement dans l'ordre : Eureka (8761) → config-service (9999) → `calcul-service` 8081 → `calcul-service` 8083 (`--server.port=8083`) → `historique-service` (8082) → passerelle (8888). Chaque console client journalise `Located environment` (voir §8).
+
+### Étape 5 — Modification à chaud (partie E)
+
+1. E.1 : `calcul.max-operande` passe de 1000 à 2000 dans `calcul-service.properties`, commit « Limite de calcul-service relevee a 2000 ». Avant le refresh les deux instances répondent 1000 ; après `POST http://localhost:8081/actuator/refresh` (réponse `["calcul.max-operande"]`), l'instance 8081 répond 2000.
+2. E.3 : `historique.max-operations` passe à 2 et le nom d'équipe est modifié, commit « Limite d'historique-service abaissee a 2, nom d'equipe modifie ».
+
+```bash
+curl -X POST http://localhost:8081/actuator/refresh
+curl -X POST http://localhost:8082/actuator/refresh
+```
+
+### Étape 6 — Profils dev et prod (partie F)
+
+Deux instances du même service avec des profils différents, derrière la passerelle :
+
+```text
+calcul-service  (8081) : --spring.profiles.active=dev
+calcul-service  (8083) : --server.port=8083 --spring.profiles.active=prod
+historique-service     : --spring.profiles.active=dev
+```
+
+La passerelle alterne entre les deux instances : limite de 100 (dev) ou de 1 000 000 (prod) pour une même URL.
+
+### Étape 7 — Livraison
+
+```bash
+git add -A
+git commit -m "TP5 : Spring Cloud Config (config-service, profils dev/prod, refresh)"
+git push -u origin main
+```
+
+## 7. Configurations importantes
+
+| Fichier | Propriété | Rôle |
 |---|---|---|
-| `config-service` (port 9999) | nouveau module Maven, `@EnableConfigServer`, s'inscrit dans Eureka | `config-service/` + ligne `<module>` du `pom.xml` racine |
-| Dépôt de configuration | dossier Git voisin `calculatrice-config-repo`, sept fichiers `.properties` | archive `calculatrice-config-repo.zip` à la racine du projet |
-| Client de configuration | dépendances `spring-cloud-starter-config` et `spring-boot-starter-actuator`, `spring.config.import`, réglages communs retirés des fichiers locaux | `calcul-service` et `historique-service` (`pom.xml`, `application.properties`) |
-| `calcul-service` | `ConfigController` (`GET /calcul/config`), `@RefreshScope` et limite `calcul.max-operande` dans `CalculController` | `calcul-service/src/main/java/.../controller/` |
-| `historique-service` | `HistoriqueParams` (`@ConfigurationProperties`), `HistoriqueConfigController` (`GET /operations/config`), limite `historique.max-operations` (409) dans `OperationController` | `historique-service/src/main/java/.../` |
-| `eureka-service`, `gateway-service` | inchangés | — |
+| `config-service/application.properties` | `spring.cloud.config.server.git.uri` | dépôt lu par le serveur (`file:///` : arbre de travail) |
+| `calcul-service/application.properties` | `spring.config.import=optional:configserver:http://localhost:9999` | adresse du serveur, connue avant Eureka |
+| `calcul-service` et `historique-service` | `management.endpoints.web.exposure.include=health,env,refresh` | expose `/actuator/refresh` |
+| `calcul-service` et `historique-service` | `eureka.client.refresh.enable=false` | évite la désinscription d'Eureka lors d'un refresh (voir §10) |
+| dépôt de configuration | `calcul.max-operande`, `historique.max-operations` | limites modifiables à chaud |
 
+## 8. Exécution : installation et lancement
 
+1. Décompresser `calculatrice-config-repo.zip` dans `C:\tp5-config\` (le dossier `.git` est inclus).
+2. Ouvrir le projet dans IntelliJ, vérifier le SDK 17, puis `mvn clean package -DskipTests`.
+3. Démarrer les six processus dans l'ordre de l'étape 4 (configurations d'exécution IntelliJ ou `java -jar …`, voir réponse 11 de synthèse).
+4. Tester : Swagger UI de chaque service, `http://localhost:8761` (annuaire), `http://localhost:8888/calcul-service/calcul/config` (passerelle).
 
-## 2. Réponses aux questions
+Dans les consoles, chaque client interroge le serveur de configuration (`Fetching config from server at : http://localhost:9999`) puis journalise l'environnement reçu, par exemple pour l'instance 8081 en profil dev : `Located environment: name=calcul-service, profiles=[dev], label=null, version=bc134979ec791d36e13a1994461cc8a01cf2247e`. Un premier appel avec `profiles=[default]` précède celui du profil `dev`.
+
+## 9. Tests et résultats
+
+Tous les résultats ci-dessous ont été relevés lors d'exécutions réelles (consoles IntelliJ : Eureka 8761, config-service 9999, calcul-service 8081 et 8083, historique-service 8082, passerelle 8888).
+
+| Partie | Test | Résultat observé |
+|---|---|---|
+| C.5 | `GET :9999/calcul-service/default` (huit requêtes) | sources par ordre de priorité, `version` 09ba676…, `calcul.max-operande` = 1000 |
+| D.4 | `GET :8083/calcul/config` | identique à 8081, seul le port diffère (8083) |
+| D.5 | `GET :8082/operations/config`, puis `POST /operations` | config par défaut (max 50) ; somme 8+2 → 201 ; produit 5000×2 → 400 « operande hors limite (max 1000) » ; division 7/0 → 400 |
+| D.6 | passerelle `…/calcul-service/calcul/config` ×2 | alternance port 8083 puis 8081 ; `…/historique-service/operations/config` → 8082 ; `…/config-service/calcul-service/default` → 200 |
+| E.1 | `max-operande` 1000 → 2000, `POST :8081/actuator/refresh` | avant : 1000 sur 8081 et 8083 ; réponse `["calcul.max-operande"]` ; après : 2000 sur 8081, `produit?a=1500&b=1` → 200 |
+| E.3 (sans commit) | modification de `calcul.message` non commitée | le serveur la sert immédiatement, `version` reste 09ba676 (lecture de l'arbre de travail) ; le refresh liste seulement `calcul.message` |
+| E.3 (après commits) | `POST :8082/actuator/refresh` | `["config.client.version","historique.max-operations","historique.message","calculatrice.equipe"]` ; `maxOperations` = 2 ; équipe inchangée (`@Value` sans `@RefreshScope`) |
+| E.3 (séquence) | POST 8+2, POST 1+1, POST 2+2, DELETE /1, POST 2+2 | 201, 201, 409 « Historique plein : 2 operations au maximum », 204, 201 ; GET → [id 2, id 3] |
+| F.1 / F.2 | passerelle `…/calcul/config` ×6 | alternance 8081 dev (max 100) / 8083 prod (max 1 000 000) |
+| F.2 | passerelle `…/calcul/somme?a=500&b=1` ×6 | alternance 400 « operande hors limite (max 100) » / 200 « 501 » |
+| F.3 | `historique-service` en dev | `maxOperations` 3 ; trois POST → 201 (ids 1 à 3) ; le suivant → 409 « Historique plein : 3 operations au maximum » ; `:9999/historique-service/dev` : dev=3, défaut=2, version bc134979… |
+
+Réponse de `GET :8082/operations/config` en profil dev (F.3) : `{"service":"historique-service","port":8082,"profil":"dev","maxOperations":3,"message":"Profil dev : 3 operations au maximum","equipe":"Equipe Calculatrice - FSS (modification E.3)"}`.
+
+Journal Git du dépôt de configuration (`git log --oneline`, commits B.2, E.1 et E.3) :
+
+```
+bc13497 Limite d'historique-service abaissee a 2, nom d'equipe modifie
+aa372a0 Limite de calcul-service relevee a 2000
+09ba676 Configuration initiale de la calculatrice
+```
+
+## 10. Difficultés rencontrées et solutions
+
+| Difficulté | Cause | Solution |
+|---|---|---|
+| Après un `POST /actuator/refresh`, `calcul-service` disparaît d'Eureka ; la passerelle et OpenFeign répondent 503 « calcul-service injoignable » | le client Eureka est un bean `@RefreshScope` : le refresh le détruit et le désinscrit, puis le réenregistrement échoue (HTTP 400 au renouvellement du bail) | `eureka.client.refresh.enable=false` dans `calcul-service` et `historique-service` ; après correctif, un refresh répond `200 []` et les cinq instances restent `UP` |
+| `500` sur `/calcul-service/default` au premier essai | dépôt de configuration non initialisé ou mal placé (message « No directory at file:/… ») | dépôt créé et validé dans `C:\tp5-config`, puis redémarrage du serveur |
+| « Project JDK is not specified » au lancement Maven | SDK du projet vide | SDK 17 Temurin sélectionné (capture 1) |
+| Nouvelle valeur visible sur le serveur mais version inchangée | pour un dépôt `file:///`, le serveur lit l'arbre de travail, pas les commits | comportement documenté dans la réponse E.3 ; les commits servent à la traçabilité |
+
+## 11. Captures d'écran
+
+Toutes les images sont de vraies captures d'écran du poste, enregistrées dans `screenshots/`.
+
+### Configuration et construction
+
+![Structure du projet : SDK 17 (Temurin)](screenshots/01-project-structure-jdk17.png)
+
+*Capture 1 — Project Structure d'IntelliJ : SDK Eclipse Temurin 17.0.20.*
+
+![Maven clean](screenshots/02-maven-clean-success.png)
+
+*Capture 2 — `mvn clean` sur le projet parent : BUILD SUCCESS.*
+
+![Maven package](screenshots/03-maven-package-success.png)
+
+*Capture 3 — `mvn package` (tests ignorés) : les cinq modules sont construits, BUILD SUCCESS.*
+
+### Lancement des services
+
+![Console d'Eureka](screenshots/04-console-eureka-8761.png)
+
+*Capture 4 — Console d'`eureka-service` (port 8761) en fonctionnement.*
+
+![Console d'historique-service en dev](screenshots/05-console-historique-8082-dev.png)
+
+*Capture 5 — Console d'`historique-service` (8082, profil dev) : profil `dev` actif, `Fetching config from server at : http://localhost:9999`, deux lignes `Located environment` (`profiles=[default]` puis `profiles=[dev]`, version bc13497…).*
+
+![Console de calcul-service 8081 en dev](screenshots/06-console-calcul-8081-dev.png)
+
+*Capture 6 — Console de `calcul-service` (8081, profil dev) : mêmes lignes `Located environment` pour `name=calcul-service`.*
+
+### Dépôt de configuration
+
+![git log du dépôt de configuration](screenshots/07-git-log-config-repo.png)
+
+*Capture 7 — PowerShell dans `C:\tp5-config\calculatrice-config-repo` : les trois commits (09ba676, aa372a0, bc13497).*
+
+### Test C.5 — huit requêtes sur le serveur de configuration
+
+![C.5 requête 1](screenshots/c5-requete-1.png)
+
+*Capture 8 — `GET /calcul-service/default` : sources `calcul-service.properties` puis `application.properties`, `calcul.max-operande` = 1000, version 09ba676….*
+
+![C.5 requête 2](screenshots/c5-requete-2.png)
+
+*Capture 9 — Requête C.5 n° 2.*
+
+![C.5 requête 3](screenshots/c5-requete-3.png)
+
+*Capture 10 — Requête C.5 n° 3.*
+
+![C.5 requête 4](screenshots/c5-requete-4.png)
+
+*Capture 11 — Requête C.5 n° 4.*
+
+![C.5 requête 5](screenshots/c5-requete-5.png)
+
+*Capture 12 — Requête C.5 n° 5.*
+
+![C.5 requête 6](screenshots/c5-requete-6.png)
+
+*Capture 13 — Requête C.5 n° 6.*
+
+![C.5 requête 7](screenshots/c5-requete-7.png)
+
+*Capture 14 — Requête C.5 n° 7.*
+
+![C.5 requête 8](screenshots/c5-requete-8.png)
+
+*Capture 15 — `GET /calcul-service/default/main` : l'étiquette `main` est reconnue (`label":"main"`).*
+
+### Captures non réalisées
+
+Les captures graphiques des pages web suivantes **n'ont pas pu être produites** : tableau de bord Eureka avec les quatre services, réponses JSON de la passerelle (deux requêtes consécutives), `GET /calcul/config` avant/après refresh, Swagger UI. Les outils d'automatisation disponibles ne pouvaient ni piloter le navigateur de l'utilisateur ni capturer proprement le navigateur intégré. Les résultats correspondants (réponses JSON, codes HTTP) figurent en clair dans le tableau du §9, relevés lors de l'exécution réelle. Les consoles de `config-service`, de `calcul-service` 8083 et de la passerelle n'ont pas non plus de capture exploitable : les images obtenues étaient polluées par une fenêtre étrangère et ont été écartées.
+
+## 12. Conclusion
+
+Le TP5 est réalisé : le serveur `config-service` centralise la configuration de la calculatrice dans un dépôt Git, les deux microservices en sont clients, deux instances d'un même service se distinguent par leur profil derrière la passerelle, et les modifications sont rechargées à chaud par `/actuator/refresh`, avec une trace Git de chaque changement. L'expérience a aussi montré deux points d'attention : le serveur d'un dépôt `file:///` lit l'arbre de travail et non les commits, et le client Eureka, étant `@RefreshScope`, doit être protégé du refresh par `eureka.client.refresh.enable=false`. Pour aller plus loin : sécuriser le serveur (Spring Security, valeurs `{cipher}`) et diffuser le rechargement à toutes les instances avec Spring Cloud Bus.
+
+## 13. Réponses aux questions du TP
 
 ### Partie A
 
@@ -45,7 +313,7 @@
 
 **D.1.** Pour `server.port`, `/actuator/env` indiquerait le fichier local `application.properties` du module (8081), ou la ligne de commande pour l'instance 8083. Pour `spring.application.name`, la source est aussi le fichier local : le microservice en a besoin pour demander sa configuration, elle ne peut donc pas venir du serveur.
 
-**D.2.** Résultat attendu (à confirmer par l'expérience, voir §4) : avec `optional:`, le démarrage continue sans le serveur, puis échoue plus loin sur `Could not resolve placeholder 'calcul.max-operande'` au moment de créer `ConfigController`. Sans `optional:`, l'échec survient plus tôt, pendant la préparation de l'environnement, avec un message explicite indiquant que le serveur de configuration est injoignable (fail fast) : plus clair. Conclusion : un microservice dépend de son serveur de configuration au démarrage (pas en fonctionnement), et `optional:` ne supprime pas cette dépendance quand une propriété n'a pas de valeur de repli.
+**D.2.** Résultat attendu (raisonnement, non vérifié par une exécution) : avec `optional:`, le démarrage continue sans le serveur, puis échoue plus loin sur `Could not resolve placeholder 'calcul.max-operande'` au moment de créer `ConfigController`. Sans `optional:`, l'échec survient plus tôt, pendant la préparation de l'environnement, avec un message explicite indiquant que le serveur de configuration est injoignable (fail fast) : plus clair. Conclusion : un microservice dépend de son serveur de configuration au démarrage (pas en fonctionnement), et `optional:` ne supprime pas cette dépendance quand une propriété n'a pas de valeur de repli.
 
 **D.3.** Deux moyens : (1) empêcher la passerelle de publier la route de `config-service` (exclure ce service du `discovery.locator`, ou ne déclarer que des routes statiques explicites), et protéger le serveur par Spring Security (authentification HTTP Basic) ; (2) chiffrer les valeurs sensibles dans le dépôt avec le préfixe `{cipher}` fourni par Spring Cloud Config, de sorte qu'un mot de passe ne soit jamais lisible en clair dans le dépôt.
 
@@ -71,7 +339,7 @@ Règle de conception : pour une configuration modifiable à chaud, la placer dan
 
 **F.2.** Créer à la racine du dépôt `application-prod.properties` avec `eureka.instance.lease-renewal-interval-in-seconds=30` (et `eureka.instance.lease-expiration-duration-in-seconds=90`, valeur par défaut), puis le commiter. Ce fichier ne s'applique qu'aux services lancés en profil `prod` et l'emporte sur `application.properties`.
 
-## 3. Questions de synthèse
+## 14. Questions de synthèse
 
 1. **Tableau A.3** : nombre de programmes → C.5 / D.6 (six consoles, Eureka) ; dépendances → D.1 et D.5 ; emplacement des propriétés → D.2 ; réglages communs → B.1 puis D.2 ; changer une valeur → E.1 et E.2 ; environnements → F.1 à F.3 ; historique → `git log` (B.2, E.1, E.3) et champ `version` (C.5) ; lecture en Java → D.3 et D.5 ; points Actuator → D.4 et E.2 ; ordre de lancement → prérequis et C.5.
 2. **Démarrage d'`historique-service` en profil `dev`** : (1) lecture de son `application.properties` local (nom, port 8082, `spring.config.import`, URL Eureka) ; (2) `GET http://localhost:9999/historique-service/dev` vers `config-service` ; (3) le serveur lit dans le dépôt, dans cet ordre, `historique-service-dev.properties`, `historique-service.properties`, `application.properties` ; (4) réponse JSON, les trois sources sont ajoutées devant le fichier local ; `historique.max-operations` vaut 3 (fichier `-dev`, qui l'emporte sur 50) ; (5) création des beans, inscription dans Eureka (`GET/POST` vers 8761), Tomcat démarre sur 8082.
@@ -84,81 +352,3 @@ Règle de conception : pour une configuration modifiable à chaud, la placer dan
 9. **Retour arrière** : `git revert <commit>` dans le dépôt de configuration crée un nouveau commit qui annule la modification ; côté microservices, un seul `POST /actuator/refresh` par instance, sans redémarrage.
 10. **Mode `native`** : on perd l'historique, l'auteur et la date des changements et le retour arrière par `git revert` ; il suffit pour un poste de développement ou un test local sans besoin de traçabilité.
 11. **Sans IntelliJ** : à la racine `calculatrice-spring-cloud`, `mvn clean package -DskipTests` construit les cinq modules ; puis, dans cet ordre, `java -jar eureka-service/target/eureka-service-0.0.1-SNAPSHOT.jar`, `java -jar config-service/target/config-service-0.0.1-SNAPSHOT.jar`, `java -jar calcul-service/target/calcul-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=dev` (8081), `java -jar calcul-service/target/calcul-service-0.0.1-SNAPSHOT.jar --server.port=8083 --spring.profiles.active=prod`, `java -jar historique-service/target/historique-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=dev`, `java -jar gateway-service/target/gateway-service-0.0.1-SNAPSHOT.jar`.
-
-## 4. Tests et captures
-
-Les tests ci-dessous ont été **réellement exécutés** sur le poste (consoles IntelliJ : Eureka 8761, config-service 9999, calcul-service 8081 et 8083, historique-service 8082, gateway 8888) ; les réponses sont recopiées telles quelles. Les captures d'écran demandées (Swagger UI ou navigateur, tableau de bord Eureka, six consoles dont la ligne `Located environment`) sont à joindre dans le dossier `Captures` ; les tests C.5 (huit requêtes) y figurent déjà.
-
-### Résultats relevés
-
-
-#### D.5 (historique 8082, profil default)
-
-- `GET :8082/operations/config -> {"service":"historique-service","port":8082,"profil":"default","maxOperations":50,"message":"Configuration par defaut (profil default)","equipe":"Equipe Calculatrice - FSS"}`
-- `POST /operations somme 8+2 -> 201 {"id":1,"operateur":"somme","a":8,"b":2,"resultat":10.0}`
-- `POST /operations produit 5000*2 -> 400 {"erreur":"Erreur : operande hors limite (max 1000)"}`
-- `POST /operations division 7/0 -> 400 {"erreur":"Erreur : division par 0 impossible"}`
-- `GET /operations -> 200 [{"id":1,...somme...}]`
-
-#### D.4 (8083 default) GET :8083/calcul/config -> {"service":"calcul-service","port":8083,"profil":"default","maxOperande":1000,"message":"Configuration par defaut (profil default)","equipe":"Equipe Calculatrice - FSS"}
-
-
-#### D.6 gateway 8888
-
-- `/calcul-service/calcul/config (x2, alternance) -> port 8083 puis port 8081 (profil default, maxOperande 1000)`
-- `/historique-service/operations/config -> port 8082, maxOperations 50`
-- `/config-service/calcul-service/default -> 200, version 09ba676cc5f6153bbef95860b5c76fb3ce393735, sources calcul-service.properties + application.properties`
-- `/actuator/gateway/routes -> routes ReactiveCompositeDiscoveryClient_CALCUL-SERVICE (lb://CALCUL-SERVICE, RewritePath), GATEWAY-SERVICE, ...`
-
-#### E.1/E.2
-
-- `Modif calcul-service.properties 1000->2000 (fichier modifie, NON commite au moment du test)`
-- `Serveur: /config-service/calcul-service/default -> calcul.max-operande=2000, version encore 09ba676 (file:// = lit l'arbre de travail)`
-- `8081 AVANT refresh: maxOperande 1000`
-- `8083 AVANT refresh: maxOperande 1000`
-- `POST :8081/actuator/refresh -> 200 ["calcul.max-operande"]`
-- `8081 APRES: maxOperande 2000 ; GET /calcul/produit?a=1500&b=1 -> 200 1500`
-
-#### E.3 experience (modification non commitee de calcul.message)
-
-- `GET :9999/calcul-service/default -> version 09ba676... INCHANGEE ; calcul-service.properties: calcul.max-operande=2000, calcul.message="Message modifie sans commit (experience E.3)" => le serveur lit l'ARBRE DE TRAVAIL du depot local file:///`
-- `8081 avant refresh: message ancien ; POST /actuator/refresh -> 200 ["calcul.message"] (pas de config.client.version car version inchangee) ; apres: message nouveau`
-
-#### E.3 (apres 3 commits: git log = bc13497 / aa372a0 / 09ba676)
-
-- `POST :8082/actuator/refresh -> 200 ["config.client.version","historique.max-operations","historique.message","calculatrice.equipe"]`
-- `GET /operations/config apres refresh -> maxOperations 2, message "Limite abaissee a 2 (modification E.3)", equipe "Equipe Calculatrice - FSS" (ANCIENNE: @Value sans @RefreshScope)`
-- `(incident: calcul-service desinscrit d'Eureka -> 503 sur POST; services relances)`
-- `Sequence rejouee (historique relance, vide): POST 8+2 -> 201 id1 ; POST 1+1 -> 201 id2 ; POST 2+2 -> 409 {"erreur":"Historique plein : 2 operations au maximum"} ; DELETE /operations/1 -> 204 ; POST 2+2 -> 201 id3 ; GET -> [id2,id3]`
-
-#### Incident refresh/Eureka (corrige)
-
-- `Apres POST /actuator/refresh, calcul-service disparait d'Eureka (console Eureka: "Cancelled instance", puis "lease doesn't exist" / Not Found (Renew); console client: HTTP 400 au register). Cause: le client Eureka est @RefreshScope, detruit (deregistre) par le refresh.`
-- `Correctif: eureka.client.refresh.enable=false dans application.properties de calcul-service et historique-service. Apres correctif: refresh 200 [] et les 5 instances restent UP apres 20 s.`
-
-#### F.1 / F.2 (8081 --spring.profiles.active=dev ; 8083 --server.port=8083 --spring.profiles.active=prod)
-
-- `Gateway /calcul-service/calcul/config x6 -> alternance: {port 8081, profil dev, maxOperande 100, message "Profil dev : operandes limites a 100"} / {port 8083, profil prod, maxOperande 1000000, message "Profil prod : operandes limites a 1 000 000"}`
-- `Gateway /calcul-service/calcul/somme?a=500&b=1 x6 -> alternance 400 "Erreur : operande hors limite (max 100)" / 200 501`
-
-#### F.3 historique profil dev
-
-- `GET :8082/operations/config -> {"service":"historique-service","port":8082,"profil":"dev","maxOperations":3,"message":"Profil dev : 3 operations au maximum","equipe":"Equipe Calculatrice - FSS (modification E.3)"}`
-- `3 POST somme 1+1 -> ids 1,2,3 (GET /operations liste les 3) ; POST suivants -> 409 {"erreur":"Historique plein : 3 operations au maximum"}`
-- `:9999/historique-service/dev -> version bc134979ec79..., historique-service-dev.properties max-operations=3 ; historique-service.properties =2 ; application.properties (aucune)`
-
-### Incident rencontré et corrigé (refresh et Eureka)
-
-Après un `POST /actuator/refresh`, `calcul-service` disparaissait de l'annuaire (console Eureka : `Cancelled instance`, puis `lease doesn't exist`; console du service : erreur 400 au réenregistrement), ce qui rendait la passerelle et OpenFeign inopérants (réponse 503 « calcul-service injoignable »). Cause : le client Eureka est un bean `@RefreshScope`, détruit (et désinscrit) par le refresh. Correctif : `eureka.client.refresh.enable=false` dans le `application.properties` local de `calcul-service` et d'`historique-service`. Vérifié : après le correctif, un refresh répond `200` et les cinq instances restent `UP`.
-
-Remarque : lors de la séquence F.3, la sortie des trois premiers `POST` a été perdue à cause d'une erreur dans mon script de test ; leur effet est prouvé par le `GET /operations` qui liste les opérations 1, 2 et 3, et par les 409 qui suivent.
-
-## 5. Journal Git du dépôt de configuration
-
-Sortie de `git log --oneline` du dépôt `calculatrice-config-repo` (B.2, E.1, E.3) :
-
-```
-bc13497 Limite d'historique-service abaissee a 2, nom d'equipe modifie
-aa372a0 Limite de calcul-service relevee a 2000
-09ba676 Configuration initiale de la calculatrice
-```
