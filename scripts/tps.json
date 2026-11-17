@@ -22,5 +22,11 @@
         "titre":  "Spring Cloud : « Calculatrice » avec Eureka, Gateway et OpenFeign",
         "tech":  "Java, Spring Cloud, Eureka, Gateway, OpenFeign",
         "depot_origine":  "https://github.com/Amalkaraoud/TP4-MS"
+    },
+    {
+        "numero":  5,
+        "titre":  "Spring Cloud Config : configuration centralisée de la « Calculatrice »",
+        "tech":  "Java, Spring Boot, Spring Cloud Config, Eureka, Gateway, Git",
+        "depot_origine":  "https://github.com/Amalkaraoud/TP5-MS"
     }
 ]

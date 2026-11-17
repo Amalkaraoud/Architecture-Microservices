@@ -8,7 +8,7 @@ Ce dépôt centralise les travaux pratiques de la matière **Architecture Micros
 - **Autonomie** : chaque dossier contient un projet complet (code, `pom.xml`, configuration) qui se compile sans dépendre des autres dossiers.
 - **README obligatoire** dans chaque TP, construit à partir de `templates/TP-README.md`.
 - **Source de vérité** : `scripts/tps.json` liste les TP (numéro, titre, technologies, dépôt d'origine éventuel). L'index et l'arborescence du README principal en sont générés : ne pas les modifier à la main (blocs entre `<!-- TP-...:START/END -->`).
-- **TP1 à TP4** sont des copies fidèles des dépôts d'origine (historique Git inclus) : leur contenu n'est pas modifié ici.
+- **TP1 à TP5** sont des copies fidèles des dépôts d'origine (historique Git inclus) : leur contenu n'est pas modifié ici.
 
 ## Ajouter un nouveau TP
 
