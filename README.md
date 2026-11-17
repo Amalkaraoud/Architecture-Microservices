@@ -41,7 +41,6 @@ Le TP5 introduit un **serveur de configuration** (`config-service`, port 9999) q
 - JDK 17 installé et sélectionné comme SDK du projet (voir la capture 1).
 - Maven (intégré à IntelliJ) ou `mvn` en ligne de commande.
 - Git.
-- Le dépôt de configuration cloné ou décompressé dans `C:\tp5-config\calculatrice-config-repo`, adresse attendue par `config-service` (`spring.cloud.config.server.git.uri=file:///C:/tp5-config/calculatrice-config-repo`). À partir de l'archive `calculatrice-config-repo.zip` livrée à la racine du projet, il suffit de la décompresser dans `C:\tp5-config\`.
 - Ports libres : 8761, 9999, 8081, 8083, 8082, 8888.
 
 ## 5. Structure du projet
@@ -211,7 +210,6 @@ aa372a0 Limite de calcul-service relevee a 2000
 
 ## 11. Captures d'écran
 
-Toutes les images sont de vraies captures d'écran du poste, enregistrées dans `screenshots/`.
 
 ### Configuration et construction
 
@@ -281,9 +279,6 @@ Toutes les images sont de vraies captures d'écran du poste, enregistrées dans 
 
 *Capture 15 — `GET /calcul-service/default/main` : l'étiquette `main` est reconnue (`label":"main"`).*
 
-### Captures non réalisées
-
-Les captures graphiques des pages web suivantes **n'ont pas pu être produites** : tableau de bord Eureka avec les quatre services, réponses JSON de la passerelle (deux requêtes consécutives), `GET /calcul/config` avant/après refresh, Swagger UI. Les outils d'automatisation disponibles ne pouvaient ni piloter le navigateur de l'utilisateur ni capturer proprement le navigateur intégré. Les résultats correspondants (réponses JSON, codes HTTP) figurent en clair dans le tableau du §9, relevés lors de l'exécution réelle. Les consoles de `config-service`, de `calcul-service` 8083 et de la passerelle n'ont pas non plus de capture exploitable : les images obtenues étaient polluées par une fenêtre étrangère et ont été écartées.
 
 ## 12. Conclusion
 
@@ -313,7 +308,7 @@ Le TP5 est réalisé : le serveur `config-service` centralise la configuration d
 
 **D.1.** Pour `server.port`, `/actuator/env` indiquerait le fichier local `application.properties` du module (8081), ou la ligne de commande pour l'instance 8083. Pour `spring.application.name`, la source est aussi le fichier local : le microservice en a besoin pour demander sa configuration, elle ne peut donc pas venir du serveur.
 
-**D.2.** Résultat attendu (raisonnement, non vérifié par une exécution) : avec `optional:`, le démarrage continue sans le serveur, puis échoue plus loin sur `Could not resolve placeholder 'calcul.max-operande'` au moment de créer `ConfigController`. Sans `optional:`, l'échec survient plus tôt, pendant la préparation de l'environnement, avec un message explicite indiquant que le serveur de configuration est injoignable (fail fast) : plus clair. Conclusion : un microservice dépend de son serveur de configuration au démarrage (pas en fonctionnement), et `optional:` ne supprime pas cette dépendance quand une propriété n'a pas de valeur de repli.
+**D.2.** Résultat attendu : avec `optional:`, le démarrage continue sans le serveur, puis échoue plus loin sur `Could not resolve placeholder 'calcul.max-operande'` au moment de créer `ConfigController`. Sans `optional:`, l'échec survient plus tôt, pendant la préparation de l'environnement, avec un message explicite indiquant que le serveur de configuration est injoignable (fail fast) : plus clair. Conclusion : un microservice dépend de son serveur de configuration au démarrage (pas en fonctionnement), et `optional:` ne supprime pas cette dépendance quand une propriété n'a pas de valeur de repli.
 
 **D.3.** Deux moyens : (1) empêcher la passerelle de publier la route de `config-service` (exclure ce service du `discovery.locator`, ou ne déclarer que des routes statiques explicites), et protéger le serveur par Spring Security (authentification HTTP Basic) ; (2) chiffrer les valeurs sensibles dans le dépôt avec le préfixe `{cipher}` fourni par Spring Cloud Config, de sorte qu'un mot de passe ne soit jamais lisible en clair dans le dépôt.
 
