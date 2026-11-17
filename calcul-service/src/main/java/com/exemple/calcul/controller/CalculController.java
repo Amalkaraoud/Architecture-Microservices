@@ -5,6 +5,7 @@ import com.exemple.calcul.model.Resultat;
 import com.exemple.calcul.service.Calculatrice;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@RefreshScope
 @RequestMapping("/calcul")
 public class CalculController {
 
@@ -21,6 +23,20 @@ public class CalculController {
 
     @Value("${server.port}")
     private int port;
+
+    // Valeur absolue maximale des operandes, lue dans le depot de configuration (TP5)
+    @Value("${calcul.max-operande}")
+    private int maxOperande;
+
+    // Retourne une reponse 400 si a ou b depasse la limite, null sinon
+    private ResponseEntity<String> verifierLimite(int a, int b) {
+        if (Math.abs(a) > maxOperande || Math.abs(b) > maxOperande) {
+            return ResponseEntity.badRequest()
+                    .body("Erreur : operande hors limite (max "
+                            + maxOperande + ")");
+        }
+        return null;
+    }
 
     // Injection par constructeur : Spring fournit l'objet Calculatrice
     public CalculController(Calculatrice calculService) {
@@ -30,6 +46,8 @@ public class CalculController {
     @GetMapping(value = "/somme", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> somme(@RequestParam("a") int a,
                                         @RequestParam("b") int b) {
+        ResponseEntity<String> erreur = verifierLimite(a, b); // TP5
+        if (erreur != null) return erreur;                      // TP5
         System.out.println("[calcul-service:" + port + "] somme " + a + "+" + b);
         System.out.println("somme appelee : a=" + a + ", b=" + b);
         int result = calculService.somme(a, b);
@@ -39,6 +57,8 @@ public class CalculController {
     @GetMapping(value = "/soustraction", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> soustraction(@RequestParam("a") int a,
                                                @RequestParam("b") int b) {
+        ResponseEntity<String> erreur = verifierLimite(a, b); // TP5
+        if (erreur != null) return erreur;                      // TP5
         System.out.println("[calcul-service:" + port + "] soustraction " + a + "-" + b);
         int result = calculService.soustraction(a, b);
         return ResponseEntity.ok(String.valueOf(result));
@@ -47,6 +67,8 @@ public class CalculController {
     @GetMapping(value = "/produit", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> produit(@RequestParam("a") int a,
                                           @RequestParam("b") int b) {
+        ResponseEntity<String> erreur = verifierLimite(a, b); // TP5
+        if (erreur != null) return erreur;                      // TP5
         System.out.println("[calcul-service:" + port + "] produit " + a + "*" + b);
         int result = calculService.produit(a, b);
         return ResponseEntity.ok(String.valueOf(result));
@@ -55,6 +77,8 @@ public class CalculController {
     @GetMapping(value = "/division", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> division(@RequestParam("a") int a,
                                            @RequestParam("b") int b) {
+        ResponseEntity<String> erreur = verifierLimite(a, b); // TP5
+        if (erreur != null) return erreur;                      // TP5
         System.out.println("[calcul-service:" + port + "] division " + a + "/" + b);
         if (b == 0) {
             return ResponseEntity.badRequest()

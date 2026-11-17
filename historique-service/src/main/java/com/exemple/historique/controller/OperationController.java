@@ -2,6 +2,7 @@
 package com.exemple.historique.controller;
 
 import com.exemple.historique.client.CalculClient;
+import com.exemple.historique.config.HistoriqueParams;
 import com.exemple.historique.model.Operation;
 import com.exemple.historique.service.OperationService;
 
@@ -32,11 +33,14 @@ public class OperationController {
 
     private final OperationService operationService;
     private final CalculClient calculClient;
+    private final HistoriqueParams params; // TP5 : proprietes historique.*
 
     public OperationController(OperationService operationService,
-                               CalculClient calculClient) {
+                               CalculClient calculClient,
+                               HistoriqueParams params) {
         this.operationService = operationService;
         this.calculClient = calculClient;
+        this.params = params;
     }
 
     // Demande le résultat à calcul-service et le range dans l'opération.
@@ -67,6 +71,13 @@ public class OperationController {
     // POST /operations : crée une opération
     @PostMapping
     public ResponseEntity<Object> creer(@RequestBody Operation op) {
+        // TP5 : refuse l'operation si l'historique a atteint la taille configuree
+        if (operationService.lister().size() >= params.getMaxOperations()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("erreur", "Historique plein : "
+                            + params.getMaxOperations() + " operations au maximum"));
+        }
+
         ResponseEntity<Object> erreur = calculer(op);
 
         if (erreur != null) {
