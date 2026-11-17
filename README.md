@@ -63,7 +63,7 @@ Structure du travail rendu : le projet `calculatrice-spring-cloud` (cinq modules
 
 Règle de conception : pour une configuration modifiable à chaud, la placer dans un bean `@ConfigurationProperties` (ou dans un bean `@RefreshScope`) et ne jamais lire ces propriétés par `@Value` dans un bean ordinaire.
 
-**E.3.** Résultat à observer (voir §4). Dans l'énoncé, ce que lit le serveur sur un dépôt local `file:///` et le rôle du commit sont l'objet de l'expérience ; avec une URL distante (`https://…`), le serveur clone le dépôt et ne verrait que ce qui a été commité **et poussé**, ce qui n'est pas le comportement d'un dossier local.
+**E.3.** Expérience réalisée : `calcul.message` modifié dans `calcul-service.properties` **sans commit**. `GET http://localhost:9999/calcul-service/default` renvoie immédiatement la nouvelle valeur, alors que le champ `version` reste `09ba676…` (le dernier commit) : pour un dépôt local `file:///`, le serveur lit l'**arbre de travail** (les fichiers tels qu'ils sont sur le disque) et non les commits. Après `POST /actuator/refresh` sur 8081, `GET /calcul/config` affiche la nouvelle valeur (la réponse du refresh ne liste que `calcul.message`, sans `config.client.version`, puisque `version` n'a pas changé). Le commit n'est donc pas nécessaire au serveur dans ce mode, mais il fait changer `version` (donc apparaître `config.client.version` dans la réponse du refresh), laisse une trace (qui, quand, quoi) et permet `git revert`. Avec un dépôt distant (`https://…`), le serveur clone le dépôt puis le met à jour (`fetch`/`pull`) : il ne voit alors que ce qui a été commité **et poussé** ; une modification locale non poussée n'a aucun effet. Le comportement n'est donc pas le même.
 
 ### Partie F
 
@@ -87,14 +87,78 @@ Règle de conception : pour une configuration modifiable à chaud, la placer dan
 
 ## 4. Tests et captures
 
-Les tableaux de tests des étapes C.5, D.4, D.5, D.6, E.1, E.3, F.1, F.2 et F.3 doivent être accompagnés des captures d'écran de Swagger UI ou du navigateur (requête, statut, corps), ainsi que des captures demandées (tableau de bord Eureka avec quatre services dont deux instances de `CALCUL-SERVICE`, `POST /actuator/refresh` et `GET /calcul/config` avant/après, deux réponses consécutives de la passerelle en profils dev et prod, six consoles).
+Les tests ci-dessous ont été **réellement exécutés** sur le poste (consoles IntelliJ : Eureka 8761, config-service 9999, calcul-service 8081 et 8083, historique-service 8082, gateway 8888) ; les réponses sont recopiées telles quelles. Les captures d'écran demandées (Swagger UI ou navigateur, tableau de bord Eureka, six consoles dont la ligne `Located environment`) sont à joindre dans le dossier `Captures` ; les tests C.5 (huit requêtes) y figurent déjà.
 
-*Section à compléter avec les captures réalisées lors de l'exécution.*
+### Résultats relevés
+
+
+#### D.5 (historique 8082, profil default)
+
+- `GET :8082/operations/config -> {"service":"historique-service","port":8082,"profil":"default","maxOperations":50,"message":"Configuration par defaut (profil default)","equipe":"Equipe Calculatrice - FSS"}`
+- `POST /operations somme 8+2 -> 201 {"id":1,"operateur":"somme","a":8,"b":2,"resultat":10.0}`
+- `POST /operations produit 5000*2 -> 400 {"erreur":"Erreur : operande hors limite (max 1000)"}`
+- `POST /operations division 7/0 -> 400 {"erreur":"Erreur : division par 0 impossible"}`
+- `GET /operations -> 200 [{"id":1,...somme...}]`
+
+#### D.4 (8083 default) GET :8083/calcul/config -> {"service":"calcul-service","port":8083,"profil":"default","maxOperande":1000,"message":"Configuration par defaut (profil default)","equipe":"Equipe Calculatrice - FSS"}
+
+
+#### D.6 gateway 8888
+
+- `/calcul-service/calcul/config (x2, alternance) -> port 8083 puis port 8081 (profil default, maxOperande 1000)`
+- `/historique-service/operations/config -> port 8082, maxOperations 50`
+- `/config-service/calcul-service/default -> 200, version 09ba676cc5f6153bbef95860b5c76fb3ce393735, sources calcul-service.properties + application.properties`
+- `/actuator/gateway/routes -> routes ReactiveCompositeDiscoveryClient_CALCUL-SERVICE (lb://CALCUL-SERVICE, RewritePath), GATEWAY-SERVICE, ...`
+
+#### E.1/E.2
+
+- `Modif calcul-service.properties 1000->2000 (fichier modifie, NON commite au moment du test)`
+- `Serveur: /config-service/calcul-service/default -> calcul.max-operande=2000, version encore 09ba676 (file:// = lit l'arbre de travail)`
+- `8081 AVANT refresh: maxOperande 1000`
+- `8083 AVANT refresh: maxOperande 1000`
+- `POST :8081/actuator/refresh -> 200 ["calcul.max-operande"]`
+- `8081 APRES: maxOperande 2000 ; GET /calcul/produit?a=1500&b=1 -> 200 1500`
+
+#### E.3 experience (modification non commitee de calcul.message)
+
+- `GET :9999/calcul-service/default -> version 09ba676... INCHANGEE ; calcul-service.properties: calcul.max-operande=2000, calcul.message="Message modifie sans commit (experience E.3)" => le serveur lit l'ARBRE DE TRAVAIL du depot local file:///`
+- `8081 avant refresh: message ancien ; POST /actuator/refresh -> 200 ["calcul.message"] (pas de config.client.version car version inchangee) ; apres: message nouveau`
+
+#### E.3 (apres 3 commits: git log = bc13497 / aa372a0 / 09ba676)
+
+- `POST :8082/actuator/refresh -> 200 ["config.client.version","historique.max-operations","historique.message","calculatrice.equipe"]`
+- `GET /operations/config apres refresh -> maxOperations 2, message "Limite abaissee a 2 (modification E.3)", equipe "Equipe Calculatrice - FSS" (ANCIENNE: @Value sans @RefreshScope)`
+- `(incident: calcul-service desinscrit d'Eureka -> 503 sur POST; services relances)`
+- `Sequence rejouee (historique relance, vide): POST 8+2 -> 201 id1 ; POST 1+1 -> 201 id2 ; POST 2+2 -> 409 {"erreur":"Historique plein : 2 operations au maximum"} ; DELETE /operations/1 -> 204 ; POST 2+2 -> 201 id3 ; GET -> [id2,id3]`
+
+#### Incident refresh/Eureka (corrige)
+
+- `Apres POST /actuator/refresh, calcul-service disparait d'Eureka (console Eureka: "Cancelled instance", puis "lease doesn't exist" / Not Found (Renew); console client: HTTP 400 au register). Cause: le client Eureka est @RefreshScope, detruit (deregistre) par le refresh.`
+- `Correctif: eureka.client.refresh.enable=false dans application.properties de calcul-service et historique-service. Apres correctif: refresh 200 [] et les 5 instances restent UP apres 20 s.`
+
+#### F.1 / F.2 (8081 --spring.profiles.active=dev ; 8083 --server.port=8083 --spring.profiles.active=prod)
+
+- `Gateway /calcul-service/calcul/config x6 -> alternance: {port 8081, profil dev, maxOperande 100, message "Profil dev : operandes limites a 100"} / {port 8083, profil prod, maxOperande 1000000, message "Profil prod : operandes limites a 1 000 000"}`
+- `Gateway /calcul-service/calcul/somme?a=500&b=1 x6 -> alternance 400 "Erreur : operande hors limite (max 100)" / 200 501`
+
+#### F.3 historique profil dev
+
+- `GET :8082/operations/config -> {"service":"historique-service","port":8082,"profil":"dev","maxOperations":3,"message":"Profil dev : 3 operations au maximum","equipe":"Equipe Calculatrice - FSS (modification E.3)"}`
+- `3 POST somme 1+1 -> ids 1,2,3 (GET /operations liste les 3) ; POST suivants -> 409 {"erreur":"Historique plein : 3 operations au maximum"}`
+- `:9999/historique-service/dev -> version bc134979ec79..., historique-service-dev.properties max-operations=3 ; historique-service.properties =2 ; application.properties (aucune)`
+
+### Incident rencontré et corrigé (refresh et Eureka)
+
+Après un `POST /actuator/refresh`, `calcul-service` disparaissait de l'annuaire (console Eureka : `Cancelled instance`, puis `lease doesn't exist`; console du service : erreur 400 au réenregistrement), ce qui rendait la passerelle et OpenFeign inopérants (réponse 503 « calcul-service injoignable »). Cause : le client Eureka est un bean `@RefreshScope`, détruit (et désinscrit) par le refresh. Correctif : `eureka.client.refresh.enable=false` dans le `application.properties` local de `calcul-service` et d'`historique-service`. Vérifié : après le correctif, un refresh répond `200` et les cinq instances restent `UP`.
+
+Remarque : lors de la séquence F.3, la sortie des trois premiers `POST` a été perdue à cause d'une erreur dans mon script de test ; leur effet est prouvé par le `GET /operations` qui liste les opérations 1, 2 et 3, et par les 409 qui suivent.
 
 ## 5. Journal Git du dépôt de configuration
 
-Sortie de `git log --oneline` du dépôt `calculatrice-config-repo` (au moins trois commits : B.2, E.1, E.3) :
+Sortie de `git log --oneline` du dépôt `calculatrice-config-repo` (B.2, E.1, E.3) :
 
 ```
-(à recopier après les étapes B.2, E.1 et E.3)
+bc13497 Limite d'historique-service abaissee a 2, nom d'equipe modifie
+aa372a0 Limite de calcul-service relevee a 2000
+09ba676 Configuration initiale de la calculatrice
 ```
