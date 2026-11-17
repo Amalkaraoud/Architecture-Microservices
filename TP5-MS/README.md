@@ -1,8 +1,5 @@
 # TP5 — Configuration centralisée de la « Calculatrice » avec Spring Cloud Config
 
-> Matière : **Architecture Microservices** · Travail pratique n°5
-> [← Retour à l'index des TP](../README.md)
-
 | | |
 |---|---|
 | **Établissement** | Faculté des Sciences de Sfax — Département d'informatique et des Communications |
@@ -10,7 +7,6 @@
 | **Enseignantes** | Corinne Amel ZAYANI, Amal ABID |
 | **Année universitaire** | 2026-2027 |
 | **Base** | Projet du TP4 (`calculatrice-spring-cloud`), étendu sans régression |
-| **Dépôt d'origine** | <https://github.com/Amalkaraoud/TP5-MS> (branche `main`) |
 
 ## 1. Présentation
 
@@ -326,6 +322,4 @@ Règle de conception : pour une configuration modifiable à chaud, la placer dan
 
 **F.2.** Créer à la racine du dépôt `application-prod.properties` avec `eureka.instance.lease-renewal-interval-in-seconds=30` (et `eureka.instance.lease-expiration-duration-in-seconds=90`, valeur par défaut), puis le commiter. Ce fichier ne s'applique qu'aux services lancés en profil `prod` et l'emporte sur `application.properties`.
 
----
 
-[← Retour à l'index des TP](../README.md)
