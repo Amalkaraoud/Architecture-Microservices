@@ -19,7 +19,7 @@
 | `historique-service` | `HistoriqueParams` (`@ConfigurationProperties`), `HistoriqueConfigController` (`GET /operations/config`), limite `historique.max-operations` (409) dans `OperationController` | `historique-service/src/main/java/.../` |
 | `eureka-service`, `gateway-service` | inchangés | — |
 
-Structure du travail rendu : le projet `calculatrice-spring-cloud` (cinq modules), l'archive du dépôt de configuration avec son dossier `.git`, ce README et les captures d'écran.
+
 
 ## 2. Réponses aux questions
 
